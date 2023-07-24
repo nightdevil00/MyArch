@@ -1,0 +1,10 @@
+aic94xx-firmware
+mkinitcpio-firmware
+trizen
+upd72020x-fw
+wd719x-firmware
+gnome-browser-connector
+google-chrome
+octopi
+onedrive-abraunegg
+ttf-courier-prime
