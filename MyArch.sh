@@ -1,8 +1,8 @@
 sudo pacman -S --needed - < packages.x86_64
 sudo systemctl enable bluetooth --now
 
-sudo git clone https://aur.archlinux.org/yay-bin.git
+git clone https://aur.archlinux.org/yay-bin.git
 cd yay-bin
-sudo makepkg -si
+makepkg -si
 cd ...
 ./reinstall_aur.sh
