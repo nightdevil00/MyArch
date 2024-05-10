@@ -6,3 +6,7 @@ gnome-browser-connector
 google-chrome
 ttf-courier-prime
 octopi
+localsend-bin
+timeshift
+fastfetch
+fish
