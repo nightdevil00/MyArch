@@ -1,0 +1,5 @@
+com.heroicgameslauncher.hgl
+com.ktechpit.whatsie
+com.spotify.Client
+com.usebottles.bottles
+org.ppsspp.PPSSPP
