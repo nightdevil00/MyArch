@@ -1,105 +1,110 @@
 #!/bin/bash
-
-set -euo pipefail
-
-# Ensure running as root
-if [ "$(id -u)" -ne 0 ]; then
-  echo "Run as root"
-  exit 1
-fi
+set -e
 
 echo "=== Arch Linux Installer ==="
 
-# Select disk
-lsblk
-read -rp "Enter the target disk (e.g. /dev/sda): " DISK
+# Ensure root
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run as root"
+  exit 1
+fi
 
-# Confirm disk wipe
-read -rp "WARNING: This will erase all data on $DISK. Type YES to continue: " confirm
-[[ "$confirm" != "YES" ]] && { echo "Aborted."; exit 1; }
+# List and select disk
+lsblk -d -n -o NAME,SIZE
+read -rp "Enter target disk (e.g., /dev/sda): " DISK
+
+read -rp "This will erase ALL DATA on $DISK. Type YES to continue: " CONFIRM
+[[ "$CONFIRM" != "YES" ]] && { echo "Aborted."; exit 1; }
 
 # Partition layout
-read -rp "Separate /home partition? (y/n): " SEP_HOME
+read -rp "Create separate /home partition? (y/n): " SEP_HOME
 read -rp "Use swap? (y/n): " USE_SWAP
+if [[ "$USE_SWAP" == "y" ]]; then
+  read -rp "Enter swap size (e.g., 2G): " SWAP_SIZE
+fi
 
 # Filesystem
-read -rp "Filesystem (ext4/btrfs/xfs): " FILESYSTEM
+read -rp "Choose filesystem (ext4/btrfs/xfs): " FS
+FS=${FS:-ext4}
 
-# Hostname and locale
+# System info
 read -rp "Enter hostname: " HOSTNAME
-read -rp "Timezone (e.g., Europe/Bucharest): " TIMEZONE
-read -rp "Locale (default: en_US.UTF-8): " LOCALE
-LOCALE="${LOCALE:-en_US.UTF-8}"
+read -rp "Enter timezone (e.g., America/New_York): " TIMEZONE
+read -rp "Enter locale (default: en_US.UTF-8): " LOCALE
+LOCALE=${LOCALE:-en_US.UTF-8}
 
-# User setup
+# User credentials
 read -rp "Enter username: " USERNAME
-read -sp "Enter password for $USERNAME: " PASSWORD
+read -sp "Enter password: " PASSWORD
 echo
 
 # Desktop Environment
 echo "Choose a Desktop Environment:"
 select DE in "None (minimal)" "GNOME" "KDE Plasma" "XFCE" "Cinnamon"; do
-    case $REPLY in
-        1) DE_PKGS=""; break ;;
-        2) DE_PKGS="gnome gnome-extra gdm"; break ;;
-        3) DE_PKGS="plasma kde-applications sddm"; break ;;
-        4) DE_PKGS="xfce4 xfce4-goodies lightdm lightdm-gtk-greeter"; break ;;
-        5) DE_PKGS="cinnamon lightdm lightdm-gtk-greeter"; break ;;
-        *) echo "Invalid choice."; continue ;;
-    esac
+  case $REPLY in
+    1) DE_PKGS=""; DM=""; break ;;
+    2) DE_PKGS="gnome gnome-extra"; DM="gdm"; break ;;
+    3) DE_PKGS="plasma kde-applications"; DM="sddm"; break ;;
+    4) DE_PKGS="xfce4 xfce4-goodies"; DM="lightdm lightdm-gtk-greeter"; break ;;
+    5) DE_PKGS="cinnamon"; DM="lightdm lightdm-gtk-greeter"; break ;;
+    *) echo "Invalid choice"; continue ;;
+  esac
 done
 
-# Additional packages
-read -rp "Extra packages to install (space-separated): " EXTRA_PKGS
+# Extra packages
+read -rp "Extra packages (space separated): " EXTRA_PKGS
 
-echo "Partitioning $DISK..."
+echo "=== Partitioning $DISK ==="
 wipefs -af "$DISK"
 sgdisk -Z "$DISK"
-sgdisk -n 1:0:+512M -t 1:ef00 "$DISK"
-PART_NUM=2
+
+# Create partitions
+sgdisk -n 1:0:+512M -t 1:ef00 "$DISK"  # EFI
+INDEX=2
+
 if [[ "$USE_SWAP" == "y" ]]; then
-    read -rp "Swap size (e.g., 2G): " SWAP_SIZE
-    sgdisk -n $PART_NUM:0:+${SWAP_SIZE} -t $PART_NUM:8200 "$DISK"
-    SWAP_PART="${DISK}${PART_NUM}"
-    ((PART_NUM++))
+  sgdisk -n ${INDEX}:0:+${SWAP_SIZE} -t ${INDEX}:8200 "$DISK"
+  SWAP_PART="${DISK}${INDEX}"
+  ((INDEX++))
 fi
-sgdisk -n $PART_NUM:0:+50G -t $PART_NUM:8300 "$DISK"
-ROOT_PART="${DISK}${PART_NUM}"
-((PART_NUM++))
+
+sgdisk -n ${INDEX}:0:+20G -t ${INDEX}:8300 "$DISK"
+ROOT_PART="${DISK}${INDEX}"
+((INDEX++))
+
 if [[ "$SEP_HOME" == "y" ]]; then
-    sgdisk -n $PART_NUM:0:0 -t $PART_NUM:8302 "$DISK"
-    HOME_PART="${DISK}${PART_NUM}"
+  sgdisk -n ${INDEX}:0:0 -t ${INDEX}:8302 "$DISK"
+  HOME_PART="${DISK}${INDEX}"
 fi
+
 EFI_PART="${DISK}1"
 
-echo "Formatting..."
+echo "=== Formatting ==="
 mkfs.fat -F32 "$EFI_PART"
-mkfs."$FILESYSTEM" "$ROOT_PART"
-[[ "$SEP_HOME" == "y" ]] && mkfs."$FILESYSTEM" "$HOME_PART"
+mkfs."$FS" "$ROOT_PART"
+[[ "$SEP_HOME" == "y" ]] && mkfs."$FS" "$HOME_PART"
 [[ "$USE_SWAP" == "y" ]] && mkswap "$SWAP_PART"
 
-echo "Mounting..."
+echo "=== Mounting ==="
 mount "$ROOT_PART" /mnt
 mkdir -p /mnt/boot
 mount "$EFI_PART" /mnt/boot
-if [[ "$SEP_HOME" == "y" ]]; then
-    mkdir /mnt/home
-    mount "$HOME_PART" /mnt/home
-fi
+[[ "$SEP_HOME" == "y" ]] && mkdir /mnt/home && mount "$HOME_PART" /mnt/home
 [[ "$USE_SWAP" == "y" ]] && swapon "$SWAP_PART"
 
-echo "Installing base system..."
-pacstrap /mnt base linux linux-firmware sudo vim nano networkmanager $DE_PKGS $EXTRA_PKGS
+echo "=== Installing Base System ==="
+pacstrap /mnt base linux linux-firmware networkmanager sudo vim $DE_PKGS $DM $EXTRA_PKGS
 
 genfstab -U /mnt >> /mnt/etc/fstab
 
-echo "Configuring system..."
+echo "=== Configuring System ==="
 arch-chroot /mnt /bin/bash <<EOF
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
 echo "$LOCALE UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=$LOCALE" > /etc/locale.conf
+
 echo "$HOSTNAME" > /etc/hostname
 echo "127.0.0.1 localhost" >> /etc/hosts
 echo "::1       localhost" >> /etc/hosts
@@ -111,11 +116,9 @@ echo "$USERNAME:$PASSWORD" | chpasswd
 echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
 
 systemctl enable NetworkManager
-
-# Enable display manager if DE selected
-[[ "$DE_PKGS" == *gdm* ]] && systemctl enable gdm
-[[ "$DE_PKGS" == *sddm* ]] && systemctl enable sddm
-[[ "$DE_PKGS" == *lightdm* ]] && systemctl enable lightdm
+[[ "$DM" == *gdm* ]] && systemctl enable gdm
+[[ "$DM" == *sddm* ]] && systemctl enable sddm
+[[ "$DM" == *lightdm* ]] && systemctl enable lightdm
 
 bootctl install
 PARTUUID=\$(blkid -s PARTUUID -o value $ROOT_PART)
@@ -125,12 +128,12 @@ timeout 3
 editor no
 LOADER
 
-cat > /boot/loader/entries/arch.conf <<BOOTENTRY
+cat > /boot/loader/entries/arch.conf <<BOOT
 title   Arch Linux
 linux   /vmlinuz-linux
 initrd  /initramfs-linux.img
 options root=PARTUUID=\$PARTUUID rw
-BOOTENTRY
+BOOT
 EOF
 
-echo "Installation complete. You can now reboot."
+echo "=== Installation Complete! You can now reboot. ==="
