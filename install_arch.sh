@@ -3,6 +3,9 @@ set -e
 
 echo "=== Arch Linux Installer ==="
 
+#if it gives errors do pacman -Sy  dos2unix and then do dos2unix install_arch.sh
+# run with bash install_arch.sh
+
 # Ensure root
 if [ "$EUID" -ne 0 ]; then
   echo "Please run as root"
