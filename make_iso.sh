@@ -121,7 +121,7 @@ EOF
 
 # Download wallpaper
 mkdir -p airootfs/usr/share/backgrounds
-wget -O airootfs/usr/share/backgrounds/custom-wallpaper.jpg https://wallpapercave.com/wp/wp9165364.jpg
+wget -O airootfs/usr/share/backgrounds/custom-wallpaper.jpg https://wallpapercave.com/uwp/uwp4808246.jpeg
 
 # Compile dconf database
 dconf compile airootfs/etc/skel/.config/dconf/user gnome-dconf
@@ -131,7 +131,7 @@ cat > airootfs/root/install-arch.sh <<'EOF'
 #!/bin/bash
 set -euo pipefail
 
-echo "Welcome to the Arch Linux installer script!"
+echo "Welcome to the Bare Arch Linux installer script!"
 echo
 
 read -rp "Enter target disk (e.g. /dev/nvme0n1 or /dev/sda): " DISK
@@ -165,7 +165,7 @@ else
 fi
 
 sgdisk -n1:0:+512M -t1:ef00 -c1:"EFI system partition" "$DISK"
-sgdisk -n2:0:+20G -t2:8300 -c2:"Root partition" "$DISK"
+sgdisk -n2:0:+50G -t2:8300 -c2:"Root partition" "$DISK"
 sgdisk -n3:0:0 -t3:8300 -c3:"Home partition" "$DISK"
 
 echo "Formatting partitions..."
@@ -185,7 +185,7 @@ mount "$HOME_PART" /mnt/home
 echo "Installing base system..."
 
 pacstrap /mnt base base-devel linux linux-headers linux-firmware \
-    networkmanager sudo vim git
+    networkmanager sudo vim git nano
 
 echo "Generating fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -202,8 +202,8 @@ arch-chroot /mnt /bin/bash -c "
     echo '127.0.0.1 localhost' >> /etc/hosts
     echo '::1       localhost' >> /etc/hosts
     echo '127.0.1.1 archlinux.localdomain archlinux' >> /etc/hosts
-    useradd -m -G wheel archuser
-    echo 'archuser:archlinux' | chpasswd
+    useradd -m -G wheel mihai
+    echo 'mihai:1234' | chpasswd
     echo 'root:root' | chpasswd
     sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
     systemctl enable NetworkManager
