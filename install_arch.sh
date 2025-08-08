@@ -3,9 +3,6 @@ set -e
 
 echo "=== Arch Linux Installer ==="
 
-#if it gives errors do pacman -Sy  dos2unix and then do dos2unix install_arch.sh
-# run with bash install_arch.sh
-
 # Ensure root
 if [ "$EUID" -ne 0 ]; then
   echo "Please run as root"
@@ -14,10 +11,17 @@ fi
 
 # List and select disk
 lsblk -d -n -o NAME,SIZE
-read -rp "Enter target disk (e.g., /dev/sda): " DISK
+read -rp "Enter target disk (e.g., /dev/sda or /dev/nvme0n1): " DISK
 
 read -rp "This will erase ALL DATA on $DISK. Type YES to continue: " CONFIRM
 [[ "$CONFIRM" != "YES" ]] && { echo "Aborted."; exit 1; }
+
+# Determine correct partition naming
+if [[ "$DISK" =~ nvme ]]; then
+  PART_PREFIX="${DISK}p"
+else
+  PART_PREFIX="${DISK}"
+fi
 
 # Partition layout
 read -rp "Create separate /home partition? (y/n): " SEP_HOME
@@ -67,20 +71,20 @@ INDEX=2
 
 if [[ "$USE_SWAP" == "y" ]]; then
   sgdisk -n ${INDEX}:0:+${SWAP_SIZE} -t ${INDEX}:8200 "$DISK"
-  SWAP_PART="${DISK}${INDEX}"
+  SWAP_PART="${PART_PREFIX}${INDEX}"
   ((INDEX++))
 fi
 
 sgdisk -n ${INDEX}:0:+20G -t ${INDEX}:8300 "$DISK"
-ROOT_PART="${DISK}${INDEX}"
+ROOT_PART="${PART_PREFIX}${INDEX}"
 ((INDEX++))
 
 if [[ "$SEP_HOME" == "y" ]]; then
   sgdisk -n ${INDEX}:0:0 -t ${INDEX}:8302 "$DISK"
-  HOME_PART="${DISK}${INDEX}"
+  HOME_PART="${PART_PREFIX}${INDEX}"
 fi
 
-EFI_PART="${DISK}1"
+EFI_PART="${PART_PREFIX}1"
 
 echo "=== Formatting ==="
 mkfs.fat -F32 "$EFI_PART"
@@ -140,3 +144,5 @@ BOOT
 EOF
 
 echo "=== Installation Complete! You can now reboot. ==="
+
+
