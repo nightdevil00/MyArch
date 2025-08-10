@@ -1,3 +1,4 @@
+
 #!/bin/bash
 set -e
 
@@ -33,8 +34,8 @@ sgdisk -n 3:0:0      -t 3:8300 -c 3:"Linux filesystem" $DISK
 
 echo "=== Formatting partitions ==="
 mkfs.fat -F32 ${DISK}p1
-mkfs.ext4 -F ${DISK}p2  # Recovery
-mkfs.ext4 -F ${DISK}p3  # Root
+mkfs.ext4 -F ${DISK}p2  # Recovery partition
+mkfs.ext4 -F ${DISK}p3  # Root partition
 
 echo "=== Mounting partitions ==="
 mount ${DISK}p3 /mnt
@@ -43,8 +44,18 @@ mount ${DISK}p1 /mnt/boot
 mkdir /mnt/recovery
 mount ${DISK}p2 /mnt/recovery
 
-echo "=== Downloading Arch ISO to recovery partition ==="
-curl -L "$ARCH_ISO_URL" -o /mnt/recovery/archlinux.iso
+echo "=== Downloading and extracting Arch ISO to recovery partition ==="
+TMP_ISO="/tmp/archlinux.iso"
+curl -L "$ARCH_ISO_URL" -o "$TMP_ISO"
+
+mkdir -p /mnt/iso
+mount -o loop "$TMP_ISO" /mnt/iso
+
+cp -a /mnt/iso/. /mnt/recovery/
+
+umount /mnt/iso
+rm "$TMP_ISO"
+rmdir /mnt/iso
 
 echo "=== Installing base system and GNOME ==="
 pacstrap /mnt base linux linux-firmware sudo networkmanager gnome gnome-extra grub efibootmgr $EXTRA_PKGS
@@ -100,12 +111,10 @@ UUID_RECOVERY=\$(blkid -s UUID -o value ${DISK}p2)
 echo "=== Adding GRUB recovery entry ==="
 cat <<GRUBENTRY >> /etc/grub.d/40_custom
 
-menuentry "Recovery (Arch Linux ISO)" {
-    set isofile="/archlinux.iso"
-    search --no-floppy --fs-uuid --set=root \$UUID_RECOVERY
-    loopback loop (\$root)\$isofile
-    linux (loop)/arch/boot/x86_64/vmlinuz-linux img_dev=/dev/disk/by-uuid/\$UUID_RECOVERY img_loop=\$isofile earlymodules=loop
-    initrd (loop)/arch/boot/x86_64/initramfs-linux.img
+menuentry "Recovery (Arch Linux Extracted)" {
+    search --no-floppy --fs-uuid --set=root $UUID_RECOVERY
+    linux /arch/boot/x86_64/vmlinuz-linux img_dev=/dev/disk/by-uuid/$UUID_RECOVERY earlymodules=loop
+    initrd /arch/boot/x86_64/initramfs-linux.img
 }
 GRUBENTRY
 
@@ -115,12 +124,17 @@ echo "=== Creating ISO update script ==="
 cat <<UPDATESCRIPT > /usr/local/bin/update-recovery-iso
 #!/bin/bash
 set -e
-UUID="\$UUID_RECOVERY"
+UUID="$UUID_RECOVERY"
 MOUNTPOINT="/tmp/recovery-\$UUID"
 mkdir -p "\$MOUNTPOINT"
 mount UUID="\$UUID" "\$MOUNTPOINT"
 echo "Downloading latest Arch ISO..."
-curl -L "$ARCH_ISO_URL" -o "\$MOUNTPOINT/archlinux.iso"
+TMP_ISO="/tmp/archlinux.iso"
+curl -L "$ARCH_ISO_URL" -o "\$TMP_ISO"
+mount -o loop "\$TMP_ISO" /mnt/iso
+cp -a /mnt/iso/. "\$MOUNTPOINT/"
+umount /mnt/iso
+rm "\$TMP_ISO"
 umount "\$MOUNTPOINT"
 echo "Recovery ISO updated."
 UPDATESCRIPT
@@ -155,4 +169,3 @@ EOF
 echo "=== Unmounting and finishing ==="
 umount -R /mnt
 echo "Installation complete! The recovery ISO will auto-update weekly."
-
