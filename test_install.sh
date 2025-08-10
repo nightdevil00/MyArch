@@ -116,7 +116,7 @@ mkdir -p /mnt/boot/efi
 mount "$EFI_PART" /mnt/boot/efi
 
 # Install base system
-pacstrap /mnt base linux linux-firmware
+pacstrap /mnt base linux linux-firmware sudo 
 
 # Generate fstab
 genfstab -U /mnt >> /mnt/etc/fstab
