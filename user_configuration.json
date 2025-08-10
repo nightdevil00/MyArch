@@ -1,0 +1,107 @@
+{
+    "app_config": null,
+    "archinstall-language": "English",
+    "auth_config": {},
+    "bootloader": "Systemd-boot",
+    "custom_commands": [],
+    "disk_config": {
+        "btrfs_options": {
+            "snapshot_config": null
+        },
+        "config_type": "default_layout",
+        "device_modifications": [
+            {
+                "device": "/dev/nvme1n1",
+                "partitions": [
+                    {
+                        "btrfs": [],
+                        "dev_path": null,
+                        "flags": [
+                            "boot",
+                            "esp"
+                        ],
+                        "fs_type": "fat32",
+                        "mount_options": [],
+                        "mountpoint": "/boot",
+                        "obj_id": "07187964-443c-4a72-a83b-9c2a17b6824a",
+                        "size": {
+                            "sector_size": {
+                                "unit": "B",
+                                "value": 512
+                            },
+                            "unit": "GiB",
+                            "value": 1
+                        },
+                        "start": {
+                            "sector_size": {
+                                "unit": "B",
+                                "value": 512
+                            },
+                            "unit": "MiB",
+                            "value": 1
+                        },
+                        "status": "create",
+                        "type": "primary"
+                    },
+                    {
+                        "btrfs": [],
+                        "dev_path": null,
+                        "flags": [],
+                        "fs_type": "ext4",
+                        "mount_options": [],
+                        "mountpoint": "/",
+                        "obj_id": "ec67c237-ad63-48e2-9871-c5f630642260",
+                        "size": {
+                            "sector_size": {
+                                "unit": "B",
+                                "value": 512
+                            },
+                            "unit": "B",
+                            "value": 999128301568
+                        },
+                        "start": {
+                            "sector_size": {
+                                "unit": "B",
+                                "value": 512
+                            },
+                            "unit": "B",
+                            "value": 1074790400
+                        },
+                        "status": "create",
+                        "type": "primary"
+                    }
+                ],
+                "wipe": true
+            }
+        ]
+    },
+    "hostname": "archlinux",
+    "kernels": [
+        "linux"
+    ],
+    "locale_config": {
+        "kb_layout": "us",
+        "sys_enc": "UTF-8",
+        "sys_lang": "en_US.UTF-8"
+    },
+    "network_config": {
+        "type": "nm"
+    },
+    "ntp": true,
+    "packages": [],
+    "parallel_downloads": 10,
+    "profile_config": {
+        "gfx_driver": null,
+        "greeter": null,
+        "profile": {
+            "custom_settings": {},
+            "details": [],
+            "main": "Minimal"
+        }
+    },
+    "script": null,
+    "services": [],
+    "swap": true,
+    "timezone": "Europe/Bucharest",
+    "version": "3.0.9"
+}
