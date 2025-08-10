@@ -8,8 +8,16 @@ PASSWORD="1234"
 LOCALE="en_US.UTF-8"
 KEYMAP="us"
 TIMEZONE="Europe/Bucharest"
-EXTRA_PKGS="git vim htop curl"
+EXTRA_PKGS_FILE="./extra_packages.txt"
 ARCH_ISO_URL="https://mirror.rackspace.com/archlinux/iso/latest/archlinux-x86_64.iso"
+
+# === READ EXTRA PACKAGES ===
+if [ -f "$EXTRA_PKGS_FILE" ]; then
+    EXTRA_PKGS=$(grep -vE "^\s*#|^\s*$" "$EXTRA_PKGS_FILE" | tr '\n' ' ')
+else
+    echo "Warning: $EXTRA_PKGS_FILE not found. Continuing without extra packages."
+    EXTRA_PKGS=""
+fi
 
 # === CHECKS ===
 if [ ! -d /sys/firmware/efi ]; then
@@ -39,7 +47,7 @@ echo "=== Downloading Arch ISO to recovery partition ==="
 curl -L "$ARCH_ISO_URL" -o /mnt/recovery/archlinux.iso
 
 echo "=== Installing base system and GNOME ==="
-pacstrap /mnt base linux linux-firmware networkmanager gnome gnome-extra grub efibootmgr $EXTRA_PKGS
+pacstrap /mnt base linux linux-firmware sudo networkmanager gnome gnome-extra grub efibootmgr $EXTRA_PKGS
 
 echo "=== Generating fstab ==="
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -74,7 +82,9 @@ useradd -m -G wheel -s /bin/bash $USERNAME
 echo "$USERNAME:$PASSWORD" | chpasswd
 
 echo "=== Configuring sudo ==="
-sed -i 's/# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
+if [ -f /etc/sudoers ]; then
+    sed -i 's/# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
+fi
 
 echo "=== Enable services ==="
 systemctl enable NetworkManager
@@ -105,17 +115,12 @@ echo "=== Creating ISO update script ==="
 cat <<UPDATESCRIPT > /usr/local/bin/update-recovery-iso
 #!/bin/bash
 set -e
-RECOVERY_MOUNT="/mnt/recovery"
-ISO_PATH="/recovery/archlinux.iso"
-UUID="$UUID_RECOVERY"
+UUID="\$UUID_RECOVERY"
 MOUNTPOINT="/tmp/recovery-\$UUID"
-
 mkdir -p "\$MOUNTPOINT"
 mount UUID="\$UUID" "\$MOUNTPOINT"
-
 echo "Downloading latest Arch ISO..."
 curl -L "$ARCH_ISO_URL" -o "\$MOUNTPOINT/archlinux.iso"
-
 umount "\$MOUNTPOINT"
 echo "Recovery ISO updated."
 UPDATESCRIPT
@@ -150,3 +155,4 @@ EOF
 echo "=== Unmounting and finishing ==="
 umount -R /mnt
 echo "Installation complete! The recovery ISO will auto-update weekly."
+
