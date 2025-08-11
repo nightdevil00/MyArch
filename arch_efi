@@ -1,0 +1,73 @@
+#!/bin/bash
+set -e
+
+# Variables — you can customize these
+DISK="/dev/sda"
+USERNAME="mihai"
+PASSWORD="1234"
+HOSTNAME="archlinux"
+LOCALE="en_US.UTF-8"
+TIMEZONE="Europe/Bucharest"
+LANG_CONF="/etc/locale.conf"
+
+echo "Starting Arch Linux installation on $DISK..."
+
+# 1. Partition the disk (single root partition)
+echo "Partitioning disk..."
+sgdisk --zap-all $DISK
+sgdisk -n 1:0:+20G -t 1:8300 $DISK  # 20GB root partition
+sgdisk -n 2:0:0 -t 2:8200 $DISK     # rest as swap
+
+# 2. Format partitions
+echo "Formatting partitions..."
+mkfs.ext4 ${DISK}1
+mkswap ${DISK}2
+swapon ${DISK}2
+
+# 3. Mount root partition
+echo "Mounting root partition..."
+mount ${DISK}1 /mnt
+
+# 4. Install base system
+echo "Installing base system..."
+pacstrap /mnt base linux linux-firmware sudo vim grub
+
+# 5. Generate fstab
+echo "Generating fstab..."
+genfstab -U /mnt >> /mnt/etc/fstab
+
+# 6. Configure system
+echo "Configuring system..."
+arch-chroot /mnt /bin/bash -c "
+  echo $HOSTNAME > /etc/hostname
+
+  # Hosts file
+  echo '127.0.0.1 localhost' > /etc/hosts
+  echo '::1       localhost' >> /etc/hosts
+  echo '127.0.1.1 $HOSTNAME.localdomain $HOSTNAME' >> /etc/hosts
+
+  # Timezone
+  ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+  hwclock --systohc
+
+  # Locale
+  echo '$LOCALE UTF-8' > /etc/locale.gen
+  locale-gen
+  echo LANG=$LOCALE > $LANG_CONF
+
+  # Set root password
+  echo root:$PASSWORD | chpasswd
+
+  # Add user and set password
+  useradd -m -G wheel -s /bin/bash $USERNAME
+  echo $USERNAME:$PASSWORD | chpasswd
+
+  # Enable sudo for wheel group
+  sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
+  # Install GRUB bootloader
+  grub-install --target=i386-pc $DISK
+  grub-mkconfig -o /boot/grub/grub.cfg
+"
+
+echo "Installation complete. You can now reboot into your new Arch Linux system."
