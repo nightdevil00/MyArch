@@ -47,9 +47,9 @@ echo "Creating and mounting EFI partition..."
 mkdir -p /mnt/boot/efi
 mount $EFI_PART /mnt/boot/efi
 
-# 5. Install base packages and grub EFI
-echo "Installing base system..."
-pacstrap /mnt base linux linux-firmware sudo vim grub efibootmgr
+# 5. Install base packages, grub EFI, networkmanager
+echo "Installing base system and networkmanager..."
+pacstrap /mnt base linux linux-firmware sudo vim grub efibootmgr networkmanager git
 
 # 6. Generate fstab
 echo "Generating fstab..."
@@ -87,6 +87,9 @@ echo $USERNAME:$PASSWORD | chpasswd
 # Allow wheel group sudo without password prompt (optional)
 sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) NOPASSWD: ALL/' /etc/sudoers
 
+# Enable NetworkManager so networking works on boot
+systemctl enable NetworkManager.service
+
 # Install and configure GRUB for UEFI
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
@@ -94,4 +97,3 @@ grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
 echo "Arch Linux UEFI installation complete. You can reboot now."
-
