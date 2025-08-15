@@ -19,7 +19,7 @@ create_partition() {
     local part_name="$1"
     local default_fs="$2"
 
-    read -p "Enter size for $part_name partition (e.g., 512MiB, 20GiB) or leave empty to skip: " size
+    read -p "Enter size for $part_name partition (e.g., 512MiB, 20GiB, 100%) or leave empty to skip: " size
     if [[ -z "$size" ]]; then
         echo "Skipping $part_name."
         return
@@ -28,16 +28,16 @@ create_partition() {
     read -p "Choose filesystem for $part_name [$default_fs]: " fs
     fs=${fs:-$default_fs}
 
-    # Get the start position of the next free space
+    # Get the start of next free space from parted (with unit)
     local start=$(parted -s "$DRIVE" unit MiB print free | awk '/Free Space/ {print $1}' | tail -n 1)
-    start=${start%MiB}
 
-    # Calculate end position (strip unit for math)
-    local size_val=${size%[A-Za-z]}
-    local end=$(( start + size_val ))
+    # Remove MiB for parted command if using percentage
+    if [[ "$size" == *% ]]; then
+        parted -s "$DRIVE" mkpart "$part_name" "$start" "$size"
+    else
+        parted -s "$DRIVE" mkpart "$part_name" "$start" "$(( ${start%MiB} + ${size%[A-Za-z]} ))"MiB
+    fi
 
-    # Create the partition
-    parted -s "$DRIVE" mkpart "$part_name" "$start"MiB "$end"MiB
     echo "Created $part_name."
 
     # Get partition number from parted
@@ -84,4 +84,3 @@ create_partition "home" "ext4"
 # Show final layout
 parted "$DRIVE" print
 echo "Partitioning complete!"
-
