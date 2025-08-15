@@ -2,7 +2,13 @@
 
 set -euo pipefail
 
-# Function: Detect correct partition naming scheme
+# Convert GB to MiB (1GB = 1024MiB)
+gb_to_mib() {
+    local gb="$1"
+    echo $(( gb * 1024 ))
+}
+
+# Detect correct partition naming scheme
 get_part_path() {
     local drive="$1"
     local part_num="$2"
@@ -14,13 +20,13 @@ get_part_path() {
     fi
 }
 
-# Function: Create a partition if size is given
+# Create a partition if size is given
 create_partition() {
     local part_name="$1"
     local default_fs="$2"
 
-    read -p "Enter size for $part_name partition (e.g., 512MiB, 20GiB, 100%) or leave empty to skip: " size
-    if [[ -z "$size" ]]; then
+    read -p "Enter size in GB for $part_name partition (e.g., 0.5 for 512MiB, 20 for 20GiB, 100% for remaining space, 0 to skip): " size_input
+    if [[ "$size_input" == "0" || -z "$size_input" ]]; then
         echo "Skipping $part_name."
         return
     fi
@@ -28,20 +34,27 @@ create_partition() {
     read -p "Choose filesystem for $part_name [$default_fs]: " fs
     fs=${fs:-$default_fs}
 
-    # Get the start of the next free space (first free block after partitions)
-    local start=$(parted -m "$DRIVE" unit MiB print free | awk -F: '/free/ && NR>1 {print $1; exit}')
-    
-    # Create the partition with alignment
-    if [[ "$size" == "100%" ]]; then
-        parted -a optimal -s "$DRIVE" mkpart "$part_name" "$start" 100%
+    # Get start in MiB (integer aligned)
+    local start_mib
+    start_mib=$(parted -m "$DRIVE" unit MiB print free | awk -F: '/free/ && NR>1 {print int($1); exit}')
+
+    if [[ "$size_input" == "100%" ]]; then
+        # Use all remaining space
+        parted -a optimal -s "$DRIVE" mkpart "$part_name" "${start_mib}MiB" 100%
     else
-        parted -a optimal -s "$DRIVE" mkpart "$part_name" "$start" "$size"
+        # Convert GB to MiB
+        local size_mib
+        size_mib=$(gb_to_mib "$size_input")
+        local end_mib=$(( start_mib + size_mib ))
+
+        parted -a optimal -s "$DRIVE" mkpart "$part_name" "${start_mib}MiB" "${end_mib}MiB"
     fi
 
     echo "Created $part_name."
 
     # Get partition number from parted
-    local part_num=$(parted -m "$DRIVE" print | awk -F: -v name="$part_name" '$0 ~ name {print $1}')
+    local part_num
+    part_num=$(parted -m "$DRIVE" print | awk -F: -v name="$part_name" '$0 ~ name {print $1}')
     local part_path
     part_path=$(get_part_path "$DRIVE" "$part_num")
 
