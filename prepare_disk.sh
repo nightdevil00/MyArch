@@ -28,14 +28,14 @@ create_partition() {
     read -p "Choose filesystem for $part_name [$default_fs]: " fs
     fs=${fs:-$default_fs}
 
-    # Get the start of the next free space (with MiB unit)
-    local start=$(parted -m "$DRIVE" unit MiB print free | awk -F: '/free/ {print $1}' | tail -n 1)
-
-    # Create the partition — let parted handle the math
+    # Get the start of the next free space (first free block after partitions)
+    local start=$(parted -m "$DRIVE" unit MiB print free | awk -F: '/free/ && NR>1 {print $1; exit}')
+    
+    # Create the partition with alignment
     if [[ "$size" == "100%" ]]; then
-        parted -s "$DRIVE" mkpart "$part_name" "$start" 100%
+        parted -a optimal -s "$DRIVE" mkpart "$part_name" "$start" 100%
     else
-        parted -s "$DRIVE" mkpart "$part_name" "$start" "$size"
+        parted -a optimal -s "$DRIVE" mkpart "$part_name" "$start" "$size"
     fi
 
     echo "Created $part_name."
