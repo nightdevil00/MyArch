@@ -28,20 +28,20 @@ create_partition() {
     read -p "Choose filesystem for $part_name [$default_fs]: " fs
     fs=${fs:-$default_fs}
 
-    # Get the start of next free space from parted (with unit)
-    local start=$(parted -s "$DRIVE" unit MiB print free | awk '/Free Space/ {print $1}' | tail -n 1)
+    # Get the start of the next free space (with MiB unit)
+    local start=$(parted -m "$DRIVE" unit MiB print free | awk -F: '/free/ {print $1}' | tail -n 1)
 
-    # Remove MiB for parted command if using percentage
-    if [[ "$size" == *% ]]; then
-        parted -s "$DRIVE" mkpart "$part_name" "$start" "$size"
+    # Create the partition — let parted handle the math
+    if [[ "$size" == "100%" ]]; then
+        parted -s "$DRIVE" mkpart "$part_name" "$start" 100%
     else
-        parted -s "$DRIVE" mkpart "$part_name" "$start" "$(( ${start%MiB} + ${size%[A-Za-z]} ))"MiB
+        parted -s "$DRIVE" mkpart "$part_name" "$start" "$size"
     fi
 
     echo "Created $part_name."
 
     # Get partition number from parted
-    local part_num=$(parted -s "$DRIVE" print | awk -v name="$part_name" '$0 ~ name {print $1}')
+    local part_num=$(parted -m "$DRIVE" print | awk -F: -v name="$part_name" '$0 ~ name {print $1}')
     local part_path
     part_path=$(get_part_path "$DRIVE" "$part_num")
 
