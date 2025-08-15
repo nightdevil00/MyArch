@@ -2,10 +2,9 @@
 
 set -euo pipefail
 
-# Convert GB to MiB (1GB = 1024MiB)
+# Convert GB to MiB
 gb_to_mib() {
-    local gb="$1"
-    echo $(( gb * 1024 ))
+    echo $(( $1 * 1024 ))
 }
 
 # Detect correct partition naming scheme
@@ -20,43 +19,67 @@ get_part_path() {
     fi
 }
 
-# Create a partition if size is given
+# Create a partition with specified size (in GB or percentage)
 create_partition() {
-    local part_name="$1"
-    local default_fs="$2"
+    local drive="$1"
+    local part_name="$2"
+    local default_fs="$3"
 
-    read -p "Enter size in GB for $part_name partition (e.g., 0.5 for 512MiB, 20 for 20GiB, 100% for remaining space, 0 to skip): " size_input
+    # Get total disk size in MiB
+    local total_size_mib
+    total_size_mib=$(parted -m "$drive" unit MiB print | grep "^Disk" | awk '{print $3}' | sed 's/MiB//')
+
+    # Get current free space start position
+    local start_mib
+    start_mib=$(parted -m "$drive" unit MiB print free | awk -F: '/free/ {print $1; exit}')
+
+    # Prompt for partition size
+    read -p "Enter size in GB for $part_name partition (e.g., 0.5, 20, 100%, 0 to skip): " size_input
     if [[ "$size_input" == "0" || -z "$size_input" ]]; then
         echo "Skipping $part_name."
-        return
+        return 0
     fi
 
+    # Prompt for filesystem
     read -p "Choose filesystem for $part_name [$default_fs]: " fs
     fs=${fs:-$default_fs}
 
-    # Get start in MiB (integer aligned)
-    local start_mib
-    start_mib=$(parted -m "$DRIVE" unit MiB print free | awk -F: '/free/ && NR>1 {print int($1); exit}')
+    local end_mib
 
     if [[ "$size_input" == "100%" ]]; then
-        # Use all remaining space
-        parted -a optimal -s "$DRIVE" mkpart "$part_name" "${start_mib}MiB" 100%
+        # Use remaining space
+        end_mib=$total_size_mib
+        # Create partition
+        parted -a optimal -s "$drive" mkpart "$part_name" "${start_mib}MiB" "${end_mib}MiB"
     else
         # Convert GB to MiB
         local size_mib
         size_mib=$(gb_to_mib "$size_input")
-        local end_mib=$(( start_mib + size_mib ))
-
-        parted -a optimal -s "$DRIVE" mkpart "$part_name" "${start_mib}MiB" "${end_mib}MiB"
+        end_mib=$(( start_mib + size_mib ))
+        if (( end_mib > total_size_mib )); then
+            echo "Error: Partition exceeds disk size. Please specify a smaller size."
+            return 1
+        fi
+        # Create partition
+        parted -a optimal -s "$drive" mkpart "$part_name" "${start_mib}MiB" "${end_mib}MiB"
     fi
 
-    echo "Created $part_name."
+    echo "$part_name partition created from ${start_mib}MiB to ${end_mib}MiB."
 
-    # Get partition number from parted
+    # Refresh partition table
+    partprobe "$drive"
+    sleep 2
+
+    # Get partition number
     local part_num
-    part_num=$(parted -m "$DRIVE" print | awk -F: -v name="$part_name" '$0 ~ name {print $1}')
+    part_num=$(parted -m "$drive" print | awk -F: -v name="$part_name" '$0 ~ name {print $1}')
     local part_path
-    part_path=$(get_part_path "$DRIVE" "$part_num")
+    part_path=$(get_part_path "$drive" "$part_num")
+
+    # Wait for device node
+    while [ ! -b "$part_path" ]; do
+        sleep 1
+    done
 
     # Format partition
     case "$fs" in
@@ -85,15 +108,27 @@ if [[ "$CONFIRM" != "YES" ]]; then
     exit 1
 fi
 
-# Create new GPT table
+# Create new GPT partition table
 parted -s "$DRIVE" mklabel gpt
 
-# Create partitions interactively
-create_partition "EFI" "fat32"
-create_partition "root" "ext4"
-create_partition "swap" "swap"
-create_partition "home" "ext4"
+# Create EFI partition
+echo "Creating EFI partition..."
+create_partition "$DRIVE" "EFI" "fat32"
+
+# Create root partition
+echo "Creating root partition..."
+create_partition "$DRIVE" "root" "ext4"
+
+# Create swap partition
+echo "Creating swap partition..."
+create_partition "$DRIVE" "swap" "swap"
+
+# Create home partition
+echo "Creating home partition..."
+create_partition "$DRIVE" "home" "ext4"
 
 # Show final layout
+echo "Final partition layout:"
 parted "$DRIVE" print
+
 echo "Partitioning complete!"
