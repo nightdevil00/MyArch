@@ -2,7 +2,6 @@
 # archinstall-dialog-full.sh
 set -euo pipefail
 
-### Globals
 DISK=""
 PART_PREFIX=""
 BOOT_MODE="UEFI"
@@ -23,12 +22,11 @@ BOOT_PART=""
 ROOT_PART=""
 SWAP_PART=""
 
-### Helper functions
 require_cmds() {
     local missing=()
     for c in "$@"; do command -v "$c" >/dev/null 2>&1 || missing+=("$c"); done
     if ((${#missing[@]})); then
-        echo "Installing missing tools: ${missing[*]} ..."
+        echo "Installing missing tools: ${missing[*]}"
         pacman -Sy --noconfirm "${missing[@]}"
     fi
 }
@@ -55,49 +53,45 @@ ask_dialog() {
 }
 
 confirm_dialog() {
-    dialog --clear --yesno "$1" 7 40
+    dialog --clear --yesno "$1" 7 50
     return $?
 }
 
 detect_boot_mode() {
     if [[ -d /sys/firmware/efi/efivars ]]; then BOOT_MODE="UEFI"; else BOOT_MODE="BIOS"; fi
-    echo "🔍 Boot mode detected: $BOOT_MODE"
+    echo "Boot mode detected: $BOOT_MODE"
 }
 
 select_disk() {
-    echo ""
-    echo "=== Available disks ==="
     lsblk -dpno NAME,SIZE,MODEL | grep -E "/dev/(sd|nvme|vd)"
     DISK=$(ask_dialog "Enter target disk (e.g. /dev/sda, /dev/nvme0n1, /dev/vda)")
     case "$DISK" in
         /dev/nvme*) PART_PREFIX="p" ;;
         /dev/sd*|/dev/vd*) PART_PREFIX="" ;;
-        *) dialog --msgbox "Unknown disk type: $DISK" 5 40; exit 1 ;;
+        *) dialog --msgbox "Unknown disk type: $DISK" 5 50; exit 1 ;;
     esac
 }
 
 configure_mirrors() {
     require_cmds reflector
-    region=$(dialog_menu "Select mirror region" \
-        "Worldwide – Global mirrors" \
-        "US – United States mirrors" \
-        "Europe – European mirrors" \
-        "Asia – Asian mirrors")
+    region=$(dialog_menu "Select mirror region" "Worldwide – Global mirrors" "US – United States mirrors" "Europe – European countries" "Asia – Asian countries")
     case "$region" in
         *Worldwide*) reflector --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
         *US*) reflector --country "United States" --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
-        *Europe*) reflector --continent Europe --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
-        *Asia*) reflector --continent Asia --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
+        *Europe*)
+            country=$(dialog_menu "Select European country" "Germany" "Germany" "France" "France" "Netherlands" "Netherlands" "Switzerland" "Switzerland" "Italy" "Italy")
+            reflector --country "$country" --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
+        *Asia*)
+            country=$(dialog_menu "Select Asian country" "Japan" "Japan" "China" "China" "Singapore" "Singapore" "India" "India")
+            reflector --country "$country" --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
     esac
 }
 
 partition_disk() {
-    confirm_dialog "⚠️ This will ERASE all data on $DISK. Proceed?" || exit 1
-
+    confirm_dialog "WARNING: This will erase all data on $DISK. Proceed?" || exit 1
     wipefs -a "$DISK" || true
     sgdisk -Z "$DISK" || true
     parted --script "$DISK" mklabel gpt
-
     if [[ "$BOOT_MODE" == "UEFI" ]]; then
         parted --script "$DISK" mkpart ESP fat32 1MiB 512MiB
         parted --script "$DISK" set 1 esp on
@@ -123,12 +117,10 @@ partition_disk() {
     elif [[ "$BOOT_MODE" == "UEFI" ]]; then ROOT_PART="${DISK}${PART_PREFIX}2"
     else ROOT_PART="${DISK}${PART_PREFIX}2"; fi
 
-    # Format partitions
     if [[ "$BOOT_MODE" == "UEFI" ]]; then mkfs.fat -F32 "$BOOT_PART"; fi
     mkfs."$FILESYSTEM" -F "$ROOT_PART"
     if [[ -n "${SWAP_PART:-}" ]]; then mkswap "$SWAP_PART"; swapon "$SWAP_PART"; fi
 
-    # Mount partitions
     mount "$ROOT_PART" /mnt
     if [[ "$FILESYSTEM" == "btrfs" ]]; then
         btrfs subvolume create /mnt/@
@@ -144,19 +136,19 @@ partition_disk() {
 install_base() {
     BASE=(base linux linux-firmware vim)
     case "$PROFILE" in
-        minimal) BASE+=(networkmanager) ;;
-        desktop) BASE+=(networkmanager xorg) ;;
-        server) BASE+=(openssh) ;;
+        *minimal*) BASE+=(networkmanager) ;;
+        *desktop*) BASE+=(networkmanager xorg) ;;
+        *server*) BASE+=(openssh) ;;
     esac
     pacstrap /mnt "${BASE[@]}" ${PACKAGES[@]+"${PACKAGES[@]}"}
     genfstab -U /mnt >> /mnt/etc/fstab
 
     if [[ "$SWAP_MODE" == "file" ]]; then
         arch-chroot /mnt bash -c "
-          fallocate -l ${SWAP_SIZE_GIB}G /swapfile
-          chmod 600 /swapfile
-          mkswap /swapfile
-          echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+            fallocate -l ${SWAP_SIZE_GIB}G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            echo '/swapfile none swap defaults 0 0' >> /etc/fstab
         "
     fi
 }
@@ -177,7 +169,7 @@ configure_system() {
         *networkmanager*) arch-chroot /mnt systemctl enable NetworkManager ;;
         *systemd-networkd*) arch-chroot /mnt systemctl enable systemd-networkd systemd-resolved ;;
         *static*)
-            cat >/mnt/etc/systemd/network/20-wired.network <<'EOF'
+            cat >/mnt/etc/systemd/network/20-wired.network <<EOF
 [Match]
 Name=en*
 [Network]
@@ -222,44 +214,21 @@ main() {
     select_disk
     configure_mirrors
 
-    FILESYSTEM=$(dialog_menu "Choose filesystem" \
-        "ext4 – Stable, default Linux filesystem" \
-        "btrfs – Snapshots, compression, subvolumes" \
-        "xfs – Scalable, fast for large files")
-
-    SWAP_MODE=$(dialog_menu "Swap mode" \
-        "none – No swap" \
-        "partition – Dedicated swap partition" \
-        "file – Swap file inside root")
-    if [[ "$SWAP_MODE" != "none" ]]; then
-        SWAP_SIZE_GIB=$(ask_dialog "Swap size in GiB (e.g. 8)")
-    fi
+    FILESYSTEM=$(dialog_menu "Choose filesystem" "ext4 – default" "btrfs – snapshots" "xfs – scalable")
+    SWAP_MODE=$(dialog_menu "Swap mode" "none – no swap" "partition – swap partition" "file – swap file")
+    if [[ "$SWAP_MODE" != "none" ]]; then SWAP_SIZE_GIB=$(ask_dialog "Swap size in GiB") ; fi
 
     TIMEZONE=$(ask_dialog "Timezone (e.g. Europe/Berlin)")
     HOSTNAME=$(ask_dialog "Hostname")
     USERNAME=$(ask_dialog "Username")
-    PASSWORD=$(ask_dialog "Password (visible as you type)")
+    PASSWORD=$(ask_dialog "Password")
 
-    PROFILE=$(dialog_menu "Select profile" \
-        "minimal – Base system + NetworkManager" \
-        "desktop – Base + Xorg + NetworkManager" \
-        "server – Base + OpenSSH")
-
-    NETWORK=$(dialog_menu "Networking option" \
-        "networkmanager – Easy WiFi/Ethernet management" \
-        "systemd-networkd – Lightweight DHCP/static config" \
-        "static – Manual static IP")
-
-    DE=$(dialog_menu "Desktop environment" \
-        "none – Console only" \
-        "gnome – Modern desktop (Wayland default)" \
-        "kde – Highly customizable desktop" \
-        "xfce – Lightweight, fast desktop")
+    PROFILE=$(dialog_menu "Select profile" "minimal – base + network" "desktop – base + xorg" "server – base + openssh")
+    NETWORK=$(dialog_menu "Networking option" "networkmanager – easy WiFi/Ethernet" "systemd-networkd – lightweight DHCP" "static – manual static IP")
+    DE=$(dialog_menu "Desktop environment" "none – console only" "gnome – modern desktop" "kde – plasma desktop" "xfce – lightweight desktop")
 
     if [[ "$BOOT_MODE" == "UEFI" ]]; then
-        BOOTLOADER=$(dialog_menu "Bootloader" \
-            "grub – Traditional BIOS+UEFI bootloader" \
-            "systemd-boot – Simple UEFI boot manager")
+        BOOTLOADER=$(dialog_menu "Bootloader" "grub – BIOS+UEFI" "systemd-boot – UEFI only")
     else
         BOOTLOADER="grub"
     fi
@@ -267,7 +236,7 @@ main() {
     PACKAGES=$(ask_dialog "Additional packages (space-separated, optional)")
     PACKAGES=($PACKAGES)
 
-    confirm_dialog "Selections complete. Proceed with installation?" || exit 1
+    confirm_dialog "Proceed with installation?" || exit 1
 
     partition_disk
     install_base
@@ -275,7 +244,7 @@ main() {
     install_bootloader
     install_de
 
-    dialog --msgbox "✅ Installation complete! Run: umount -R /mnt && swapoff -a && reboot" 10 50
+    dialog --msgbox "Installation complete. Run: umount -R /mnt && swapoff -a && reboot" 10 50
     clear
 }
 
