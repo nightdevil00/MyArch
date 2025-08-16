@@ -36,7 +36,26 @@ menu() {
     echo "=== $prompt ==="
     local i=1
     for opt in "${options[@]}"; do
-      echo "  $i) $opt"
+      case "$opt" in
+        ext4) echo "  $i) ext4   – stable, default Linux filesystem";;
+        btrfs) echo "  $i) btrfs  – snapshots, compression, subvolumes";;
+        xfs) echo "  $i) xfs    – scalable, fast for large files";;
+        none) echo "  $i) none   – no swap";;
+        partition) echo "  $i) partition – dedicated swap partition";;
+        file) echo "  $i) file   – swap file inside root";;
+        minimal) echo "  $i) minimal – base system + NetworkManager";;
+        desktop) echo "  $i) desktop – base + Xorg + NetworkManager";;
+        server) echo "  $i) server  – base + OpenSSH";;
+        networkmanager) echo "  $i) NetworkManager – easy WiFi/Ethernet management";;
+        systemd-networkd) echo "  $i) systemd-networkd – lightweight, DHCP/static config";;
+        static) echo "  $i) static – manually configured static IP";;
+        gnome) echo "  $i) GNOME – modern desktop (Wayland default)";;
+        kde) echo "  $i) KDE Plasma – highly customizable desktop";;
+        xfce) echo "  $i) XFCE – lightweight, fast desktop";;
+        grub) echo "  $i) GRUB – traditional bootloader, supports BIOS+UEFI";;
+        systemd-boot) echo "  $i) systemd-boot – simple UEFI boot manager";;
+        *) echo "  $i) $opt";;
+      esac
       ((i++))
     done
     read -rp "Enter choice [1-${#options[@]}]: " choice
