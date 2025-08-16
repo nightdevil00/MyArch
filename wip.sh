@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# archinstall-lite.sh: educational Arch installer
-# WILL ERASE THE TARGET DISK — run inside Arch ISO with internet
+# archinstall-lite.sh: Arch installer (educational / destructive!)
+# WARNING: Will erase the target disk. Run inside Arch ISO with internet.
 set -euo pipefail
 
 ### Globals
@@ -25,66 +25,31 @@ ROOT_PART=""
 SWAP_PART=""
 
 ### Helper functions
+
 ask() { read -rp "$1: " _val; echo "${_val}"; }
 
-menu() {
-  local prompt="$1"; shift
-  local options=("$@")
-  local choice=""
-  while true; do
-    echo ""
-    echo "=== $prompt ==="
-    local i=1
-    for opt in "${options[@]}"; do
-      case "$opt" in
-        # Filesystems
-        ext4) echo "  $i) ext4   – stable, default Linux filesystem";;
-        btrfs) echo "  $i) btrfs  – snapshots, compression, subvolumes";;
-        xfs) echo "  $i) xfs    – scalable, fast for large files";;
-
-        # Swap methods
-        none) echo "  $i) none   – no swap space";;
-        partition) echo "  $i) partition – dedicated swap partition";;
-        file) echo "  $i) file   – swap file inside root";;
-
-        # Profiles
-        minimal) echo "  $i) minimal – base system + NetworkManager";;
-        desktop) echo "  $i) desktop – base + Xorg + NetworkManager";;
-        server) echo "  $i) server  – base + OpenSSH";;
-
-        # Networking
-        networkmanager) echo "  $i) NetworkManager – easy WiFi/Ethernet management";;
-        systemd-networkd) echo "  $i) systemd-networkd – lightweight DHCP/static";;
-        static) echo "  $i) static – manually configured static IP";;
-
-        # Mirror regions
-        Worldwide) echo "  $i) Worldwide – global mirror list";;
-        US) echo "  $i) US – United States mirrors";;
-        Europe) echo "  $i) Europe – European mirrors";;
-        Asia) echo "  $i) Asia – Asian mirrors";;
-
-        # Desktop environments
-        gnome) echo "  $i) GNOME – modern desktop (Wayland default)";;
-        kde) echo "  $i) KDE Plasma – highly customizable desktop";;
-        xfce) echo "  $i) XFCE – lightweight, fast desktop";;
-        none_de) echo "  $i) none – no desktop (console only)";;
-
-        # Bootloaders
-        grub) echo "  $i) GRUB – traditional bootloader (BIOS+UEFI)";;
-        systemd-boot) echo "  $i) systemd-boot – simple UEFI boot manager";;
-
-        # Fallback
-        *) echo "  $i) $opt";;
-      esac
-      ((i++))
+# Menu function with value:description
+menu_with_desc() {
+    local prompt="$1"; shift
+    local opts=("$@")
+    local choice=""
+    while true; do
+        echo ""
+        echo "=== $prompt ==="
+        local i=1
+        for opt in "${opts[@]}"; do
+            local value="${opt%%:*}"
+            local desc="${opt#*:}"
+            printf "  %d) %s – %s\n" "$i" "$value" "$desc"
+            ((i++))
+        done
+        read -rp "Enter choice [1-${#opts[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#opts[@]} )); then
+            echo "${opts[$((choice-1))]%%:*}"  # return value only
+            return 0
+        fi
+        echo "❌ Invalid choice. Please try again."
     done
-    read -rp "Enter choice [1-${#options[@]}]: " choice
-    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
-      echo "${options[$((choice-1))]}"
-      return 0
-    fi
-    echo "❌ Invalid choice. Please try again."
-  done
 }
 
 confirm() { read -rp "$1 [y/N]: " _ans; [[ "${_ans:-}" =~ ^[Yy]$ ]]; }
@@ -120,10 +85,12 @@ select_disk() {
 
 ### Mirrors
 configure_mirrors() {
-  echo ""
-  echo "=== Mirror Selection ==="
   require_cmds reflector
-  local region; region="$(menu 'Select mirror region:' 'Worldwide' 'US' 'Europe' 'Asia')"
+  region=$(menu_with_desc "Select mirror region" \
+    "Worldwide:Global mirrors" \
+    "US:United States mirrors" \
+    "Europe:European mirrors" \
+    "Asia:Asian mirrors")
   case "$region" in
     Worldwide) reflector --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
     US)        reflector --country "United States" --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
@@ -146,38 +113,33 @@ partition_disk() {
     parted --script "$DISK" mkpart ESP fat32 1MiB 512MiB
     parted --script "$DISK" set 1 esp on
     BOOT_PART="${DISK}${PART_PREFIX}1"
-    local start="512MiB"
+    start="512MiB"
   else
     parted --script "$DISK" mkpart bios_grub 1MiB 3MiB
     parted --script "$DISK" set 1 bios_grub on
     BOOT_PART=""
-    local start="3MiB"
+    start="3MiB"
   fi
 
   if [[ "$SWAP_MODE" == "partition" ]]; then
-    local end_swap="$(( SWAP_SIZE_GIB ))GiB"
+    end_swap="$(( SWAP_SIZE_GIB ))GiB"
     parted --script "$DISK" mkpart linux-swap "${start}" "${end_swap}"
     SWAP_PART="${DISK}${PART_PREFIX}2"
     start="${end_swap}"
   fi
 
   parted --script "$DISK" mkpart root "${start}" 100%
-  if [[ "$SWAP_MODE" == "partition" && "$BOOT_MODE" == "UEFI" ]]; then
-    ROOT_PART="${DISK}${PART_PREFIX}3"
-  elif [[ "$SWAP_MODE" == "partition" && "$BOOT_MODE" == "BIOS" ]]; then
-    ROOT_PART="${DISK}${PART_PREFIX}3"
-  elif [[ "$BOOT_MODE" == "UEFI" ]]; then
-    ROOT_PART="${DISK}${PART_PREFIX}2"
-  else
-    ROOT_PART="${DISK}${PART_PREFIX}2"
-  fi
+  if [[ "$SWAP_MODE" == "partition" && "$BOOT_MODE" == "UEFI" ]]; then ROOT_PART="${DISK}${PART_PREFIX}3"
+  elif [[ "$SWAP_MODE" == "partition" && "$BOOT_MODE" == "BIOS" ]]; then ROOT_PART="${DISK}${PART_PREFIX}3"
+  elif [[ "$BOOT_MODE" == "UEFI" ]]; then ROOT_PART="${DISK}${PART_PREFIX}2"
+  else ROOT_PART="${DISK}${PART_PREFIX}2"; fi
 
-  # Format
+  # Format partitions
   if [[ "$BOOT_MODE" == "UEFI" ]]; then mkfs.fat -F32 "$BOOT_PART"; fi
   mkfs."$FILESYSTEM" -F "$ROOT_PART"
   if [[ -n "${SWAP_PART:-}" ]]; then mkswap "$SWAP_PART"; swapon "$SWAP_PART"; fi
 
-  # Mount
+  # Mount partitions
   mount "$ROOT_PART" /mnt
   if [[ "$FILESYSTEM" == "btrfs" ]]; then
     btrfs subvolume create /mnt/@
@@ -187,21 +149,18 @@ partition_disk() {
     mkdir -p /mnt/home
     mount -o subvol=@home "$ROOT_PART" /mnt/home
   fi
-  if [[ "$BOOT_MODE" == "UEFI" ]]; then
-    mkdir -p /mnt/boot
-    mount "$BOOT_PART" /mnt/boot
-  fi
+  if [[ "$BOOT_MODE" == "UEFI" ]]; then mkdir -p /mnt/boot; mount "$BOOT_PART" /mnt/boot; fi
 }
 
 ### Base install
 install_base() {
   echo ""
   echo "=== Installing base system ==="
-  local BASE=(base linux linux-firmware vim)
+  BASE=(base linux linux-firmware vim)
   case "$PROFILE" in
     minimal) BASE+=(networkmanager) ;;
     desktop) BASE+=(networkmanager xorg) ;;
-    server)  BASE+=(openssh) ;;
+    server) BASE+=(openssh) ;;
   esac
   pacstrap /mnt "${BASE[@]}" "${PACKAGES[@]}"
   genfstab -U /mnt >> /mnt/etc/fstab
@@ -216,7 +175,7 @@ install_base() {
   fi
 }
 
-### Config system
+### System configuration
 configure_system() {
   arch-chroot /mnt ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
   arch-chroot /mnt hwclock --systohc
@@ -230,10 +189,8 @@ configure_system() {
   echo '%wheel ALL=(ALL) ALL' > /mnt/etc/sudoers.d/10-wheel
 
   case "$NETWORK" in
-    networkmanager)
-      arch-chroot /mnt systemctl enable NetworkManager ;;
-    systemd-networkd)
-      arch-chroot /mnt systemctl enable systemd-networkd systemd-resolved ;;
+    networkmanager) arch-chroot /mnt systemctl enable NetworkManager ;;
+    systemd-networkd) arch-chroot /mnt systemctl enable systemd-networkd systemd-resolved ;;
     static)
       cat >/mnt/etc/systemd/network/20-wired.network <<'EOF'
 [Match]
@@ -247,7 +204,7 @@ EOF
   esac
 }
 
-### Bootloader
+### Bootloader installation
 install_bootloader() {
   if [[ "$BOOT_MODE" == "UEFI" ]]; then
     case "$BOOTLOADER" in
@@ -255,8 +212,7 @@ install_bootloader() {
         arch-chroot /mnt pacman -Sy --noconfirm grub efibootmgr
         arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg ;;
-      systemd-boot)
-        arch-chroot /mnt bootctl install ;;
+      systemd-boot) arch-chroot /mnt bootctl install ;;
     esac
   else
     arch-chroot /mnt pacman -Sy --noconfirm grub
@@ -265,41 +221,66 @@ install_bootloader() {
   fi
 }
 
-### Desktop Environment
+### Desktop Environment installation
 install_de() {
   case "$DE" in
     gnome) arch-chroot /mnt pacman -Sy --noconfirm gnome gdm; arch-chroot /mnt systemctl enable gdm ;;
     kde)   arch-chroot /mnt pacman -Sy --noconfirm plasma sddm; arch-chroot /mnt systemctl enable sddm ;;
     xfce)  arch-chroot /mnt pacman -Sy --noconfirm xfce4 lightdm lightdm-gtk-greeter; arch-chroot /mnt systemctl enable lightdm ;;
+    none)  echo "Skipping desktop installation";;
   esac
 }
 
-### Main
+### Main installer
 main() {
   require_cmds pacstrap arch-chroot parted sgdisk reflector
   detect_boot_mode
   select_disk
   configure_mirrors
 
-  FILESYSTEM="$(menu 'Choose filesystem' ext4 btrfs xfs)"
-  SWAP_MODE="$(menu 'Swap option' none partition file)"
+  FILESYSTEM=$(menu_with_desc "Choose filesystem" \
+      "ext4:Stable, default Linux filesystem" \
+      "btrfs:Snapshots, compression, subvolumes" \
+      "xfs:Scalable, fast for large files")
+
+  SWAP_MODE=$(menu_with_desc "Swap mode" \
+      "none:No swap" \
+      "partition:Dedicated swap partition" \
+      "file:Swap file inside root")
   if [[ "$SWAP_MODE" != "none" ]]; then
-    SWAP_SIZE_GIB="$(ask 'Swap size in GiB (e.g. 8)')"
+    SWAP_SIZE_GIB=$(ask 'Swap size in GiB (e.g. 8)')
   fi
-  TIMEZONE="$(ask 'Timezone (e.g. Europe/Berlin)')"
-  HOSTNAME="$(ask 'Hostname')"
-  USERNAME="$(ask 'Username')"
-  PASSWORD="$(ask 'Password (visible as you type)')"
-  PROFILE="$(menu 'Select profile' minimal desktop server)"
-  NETWORK="$(menu 'Networking option' networkmanager systemd-networkd static)"
-  DE="$(menu 'Desktop environment' none gnome kde xfce)"
+
+  TIMEZONE=$(ask 'Timezone (e.g. Europe/Berlin)')
+  HOSTNAME=$(ask 'Hostname')
+  USERNAME=$(ask 'Username')
+  PASSWORD=$(ask 'Password (visible as you type)')
+
+  PROFILE=$(menu_with_desc "Select profile" \
+      "minimal:Base system + NetworkManager" \
+      "desktop:Base + Xorg + NetworkManager" \
+      "server:Base + OpenSSH")
+
+  NETWORK=$(menu_with_desc "Networking option" \
+      "networkmanager:Easy WiFi/Ethernet management" \
+      "systemd-networkd:Lightweight DHCP/static config" \
+      "static:Manual static IP")
+
+  DE=$(menu_with_desc "Desktop environment" \
+      "none:Console only" \
+      "gnome:Modern desktop (Wayland default)" \
+      "kde:Highly customizable desktop" \
+      "xfce:Lightweight, fast desktop")
+
   if [[ "$BOOT_MODE" == "UEFI" ]]; then
-    BOOTLOADER="$(menu 'Bootloader' grub systemd-boot)"
+    BOOTLOADER=$(menu_with_desc "Bootloader" \
+      "grub:Traditional BIOS+UEFI bootloader" \
+      "systemd-boot:Simple UEFI boot manager")
   else
     BOOTLOADER="grub"
   fi
 
-  read -rp "Additional packages (space-separated): " pkgline || true
+  read -rp "Additional packages (space-separated, optional): " pkgline || true
   [[ -n "${pkgline:-}" ]] && PACKAGES=($pkgline)
 
   partition_disk
