@@ -1,38 +1,54 @@
 #!/usr/bin/env bash
-# archinstall-lite: experimental Arch installer inspired by archinstall
-# USE AT YOUR OWN RISK — WILL DESTROY DATA ON THE SELECTED DISK!
+# archinstall-lite.sh: educational Arch installer
+# WILL ERASE THE TARGET DISK — run inside Arch ISO with internet
 set -euo pipefail
 
 ### Globals
 DISK=""
-PART_PREFIX=""        # '' for sdX/vdX, 'p' for nvme0n1pX
-BOOT_MODE="UEFI"      # UEFI or BIOS (detected)
-FILESYSTEM="ext4"     # ext4|btrfs|xfs
-SWAP_MODE="none"      # none|partition|file
-SWAP_SIZE_GIB=0       # for partition or file
-BOOTLOADER="grub"     # grub|systemd-boot (UEFI only)
-PROFILE="minimal"     # minimal|desktop|server
-NETWORK="networkmanager" # networkmanager|systemd-networkd|static
-DE="none"             # none|gnome|kde|xfce
+PART_PREFIX=""
+BOOT_MODE="UEFI"
+FILESYSTEM="ext4"
+SWAP_MODE="none"
+SWAP_SIZE_GIB=0
+BOOTLOADER="grub"
+PROFILE="minimal"
+NETWORK="networkmanager"
+DE="none"
 HOSTNAME=""
 USERNAME=""
 PASSWORD=""
 TIMEZONE=""
 PACKAGES=()
 
-# Calculated device paths
 BOOT_PART=""
 ROOT_PART=""
 SWAP_PART=""
 
-### Helpers
-confirm() { read -rp "$1 [y/N]: " _ans; [[ "${_ans:-}" =~ ^[Yy]$ ]]; }
+### Helper functions
 ask() { read -rp "$1: " _val; echo "${_val}"; }
+
 menu() {
-  local prompt="$1"; shift; local options=("$@")
-  echo "$prompt"; local i=1; for o in "${options[@]}"; do echo "  $i) $o"; ((i++)); done
-  local c; read -rp "Select option: " c; echo "${options[$((c-1))]}"
+  local prompt="$1"; shift
+  local options=("$@")
+  local choice=""
+  while true; do
+    echo ""
+    echo "=== $prompt ==="
+    local i=1
+    for opt in "${options[@]}"; do
+      echo "  $i) $opt"
+      ((i++))
+    done
+    read -rp "Enter choice [1-${#options[@]}]: " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
+      echo "${options[$((choice-1))]}"
+      return 0
+    fi
+    echo "❌ Invalid choice. Please try again."
+  done
 }
+
+confirm() { read -rp "$1 [y/N]: " _ans; [[ "${_ans:-}" =~ ^[Yy]$ ]]; }
 
 require_cmds() {
   local missing=()
@@ -43,25 +59,30 @@ require_cmds() {
   fi
 }
 
+### Detect boot mode
 detect_boot_mode() {
   if [[ -d /sys/firmware/efi/efivars ]]; then BOOT_MODE="UEFI"; else BOOT_MODE="BIOS"; fi
-  echo "🔍 Boot mode: $BOOT_MODE"
+  echo "🔍 Boot mode detected: $BOOT_MODE"
 }
 
+### Disk selection
 select_disk() {
-  echo "Available disks:"
+  echo ""
+  echo "=== Available disks ==="
   lsblk -dpno NAME,SIZE,MODEL | grep -E "/dev/(sd|nvme|vd)"
   DISK="$(ask 'Enter target disk (e.g. /dev/sda, /dev/nvme0n1, /dev/vda)')"
   case "$DISK" in
     /dev/nvme*) PART_PREFIX="p" ;;
     /dev/sd*|/dev/vd*) PART_PREFIX="" ;;
-    *) echo "Unknown disk type: $DISK"; exit 1 ;;
+    *) echo "❌ Unknown disk type: $DISK"; exit 1 ;;
   esac
   echo "🔍 Partition prefix: '${PART_PREFIX}'"
 }
 
+### Mirrors
 configure_mirrors() {
-  echo "Configuring mirrors (reflector) ..."
+  echo ""
+  echo "=== Mirror Selection ==="
   require_cmds reflector
   local region; region="$(menu 'Select mirror region:' 'Worldwide' 'US' 'Europe' 'Asia')"
   case "$region" in
@@ -72,54 +93,54 @@ configure_mirrors() {
   esac
 }
 
+### Partitioning
 partition_disk() {
-  echo "⚠️ About to wipe partition table on $DISK"
-  confirm "Proceed and ERASE $DISK?" || { echo "Aborted."; exit 1; }
+  echo ""
+  echo "⚠️ This will ERASE all data on $DISK"
+  confirm "Proceed?" || exit 1
 
   wipefs -a "$DISK" || true
   sgdisk -Z "$DISK" || true
   parted --script "$DISK" mklabel gpt
 
   if [[ "$BOOT_MODE" == "UEFI" ]]; then
-    # ESP 1MiB–512MiB
     parted --script "$DISK" mkpart ESP fat32 1MiB 512MiB
     parted --script "$DISK" set 1 esp on
     BOOT_PART="${DISK}${PART_PREFIX}1"
     local start="512MiB"
   else
-    # BIOS: create tiny bios_grub 1MiB–3MiB, then boot (optional) not needed; root next
     parted --script "$DISK" mkpart bios_grub 1MiB 3MiB
     parted --script "$DISK" set 1 bios_grub on
-    BOOT_PART=""  # No separate /boot; GRUB installs to MBR + core.img
+    BOOT_PART=""
     local start="3MiB"
   fi
 
   if [[ "$SWAP_MODE" == "partition" ]]; then
     local end_swap="$(( SWAP_SIZE_GIB ))GiB"
     parted --script "$DISK" mkpart linux-swap "${start}" "${end_swap}"
-    SWAP_PART="${DISK}${PART_PREFIX}$( [[ "$BOOT_MODE" == "UEFI" ]] && echo 2 || echo 2 )"
+    SWAP_PART="${DISK}${PART_PREFIX}2"
     start="${end_swap}"
   fi
 
-  # Root partition uses the rest
   parted --script "$DISK" mkpart root "${start}" 100%
-  ROOT_PART="${DISK}${PART_PREFIX}$( [[ "$BOOT_MODE" == "UEFI" ]] && ( [[ "$SWAP_MODE" == "partition" ]] && echo 3 || echo 2 ) || ( [[ "$SWAP_MODE" == "partition" ]] && echo 3 || echo 2 ) )"
+  if [[ "$SWAP_MODE" == "partition" && "$BOOT_MODE" == "UEFI" ]]; then
+    ROOT_PART="${DISK}${PART_PREFIX}3"
+  elif [[ "$SWAP_MODE" == "partition" && "$BOOT_MODE" == "BIOS" ]]; then
+    ROOT_PART="${DISK}${PART_PREFIX}3"
+  elif [[ "$BOOT_MODE" == "UEFI" ]]; then
+    ROOT_PART="${DISK}${PART_PREFIX}2"
+  else
+    ROOT_PART="${DISK}${PART_PREFIX}2"
+  fi
 
   # Format
-  if [[ "$BOOT_MODE" == "UEFI" ]]; then
-    mkfs.fat -F32 "$BOOT_PART"
-  fi
-  case "$FILESYSTEM" in
-    ext4) mkfs.ext4 -F "$ROOT_PART" ;;
-    btrfs) mkfs.btrfs -f "$ROOT_PART" ;;
-    xfs) mkfs.xfs -f "$ROOT_PART" ;;
-  esac
+  if [[ "$BOOT_MODE" == "UEFI" ]]; then mkfs.fat -F32 "$BOOT_PART"; fi
+  mkfs."$FILESYSTEM" -F "$ROOT_PART"
   if [[ -n "${SWAP_PART:-}" ]]; then mkswap "$SWAP_PART"; swapon "$SWAP_PART"; fi
 
   # Mount
   mount "$ROOT_PART" /mnt
   if [[ "$FILESYSTEM" == "btrfs" ]]; then
-    # simple subvol layout
     btrfs subvolume create /mnt/@
     btrfs subvolume create /mnt/@home
     umount /mnt
@@ -133,9 +154,11 @@ partition_disk() {
   fi
 }
 
+### Base install
 install_base() {
-  echo "Installing base system..."
-  local BASE=(base linux linux-firmware vim sudo)
+  echo ""
+  echo "=== Installing base system ==="
+  local BASE=(base linux linux-firmware vim)
   case "$PROFILE" in
     minimal) BASE+=(networkmanager) ;;
     desktop) BASE+=(networkmanager xorg) ;;
@@ -145,8 +168,7 @@ install_base() {
   genfstab -U /mnt >> /mnt/etc/fstab
 
   if [[ "$SWAP_MODE" == "file" ]]; then
-    echo "Creating swapfile (${SWAP_SIZE_GIB}G)..."
-    arch-chroot /mnt bash -euxo pipefail -c "
+    arch-chroot /mnt bash -c "
       fallocate -l ${SWAP_SIZE_GIB}G /swapfile
       chmod 600 /swapfile
       mkswap /swapfile
@@ -155,127 +177,90 @@ install_base() {
   fi
 }
 
+### Config system
 configure_system() {
-  echo "Configuring system..."
   arch-chroot /mnt ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
   arch-chroot /mnt hwclock --systohc
   echo "$HOSTNAME" > /mnt/etc/hostname
-
-  # locale (en_US.UTF-8 default; user can adjust later)
   sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /mnt/etc/locale.gen
   arch-chroot /mnt locale-gen
   echo "LANG=en_US.UTF-8" > /mnt/etc/locale.conf
-
-  # users
   arch-chroot /mnt bash -c "echo 'root:$PASSWORD' | chpasswd"
   arch-chroot /mnt useradd -m -G wheel -s /bin/bash "$USERNAME"
   arch-chroot /mnt bash -c "echo '$USERNAME:$PASSWORD' | chpasswd"
   echo '%wheel ALL=(ALL) ALL' > /mnt/etc/sudoers.d/10-wheel
 
-  # networking base
   case "$NETWORK" in
     networkmanager)
-      arch-chroot /mnt pacman -Sy --noconfirm networkmanager
-      arch-chroot /mnt systemctl enable NetworkManager
-      ;;
+      arch-chroot /mnt systemctl enable NetworkManager ;;
     systemd-networkd)
-      arch-chroot /mnt systemctl enable systemd-networkd systemd-resolved
-      arch-chroot /mnt ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-      ;;
+      arch-chroot /mnt systemctl enable systemd-networkd systemd-resolved ;;
     static)
-      arch-chroot /mnt systemctl enable systemd-networkd systemd-resolved
-      arch-chroot /mnt ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-      # basic wired config; adjust as needed
       cat >/mnt/etc/systemd/network/20-wired.network <<'EOF'
 [Match]
 Name=en*
-
 [Network]
 Address=192.168.1.100/24
 Gateway=192.168.1.1
 DNS=1.1.1.1
 EOF
-      ;;
+      arch-chroot /mnt systemctl enable systemd-networkd systemd-resolved ;;
   esac
 }
 
+### Bootloader
 install_bootloader() {
-  echo "Installing bootloader..."
   if [[ "$BOOT_MODE" == "UEFI" ]]; then
     case "$BOOTLOADER" in
       grub)
         arch-chroot /mnt pacman -Sy --noconfirm grub efibootmgr
         arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-        ;;
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg ;;
       systemd-boot)
-        arch-chroot /mnt bootctl install
-        # Create a simple loader entry using root UUID
-        ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
-        cat >/mnt/boot/loader/loader.conf <<EOF
-default  arch
-timeout  3
-console-mode max
-editor   no
-EOF
-        KVER=$(arch-chroot /mnt bash -c "uname -r" || echo "linux")
-        # Use standard file names from pacman packages
-        cat >/mnt/boot/loader/entries/arch.conf <<EOF
-title   Arch Linux
-linux   /vmlinuz-linux
-initrd  /initramfs-linux.img
-options root=UUID=${ROOT_UUID} rw
-EOF
-        ;;
+        arch-chroot /mnt bootctl install ;;
     esac
   else
-    # BIOS + GPT with bios_grub partition
     arch-chroot /mnt pacman -Sy --noconfirm grub
     arch-chroot /mnt grub-install --target=i386-pc "$DISK"
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
   fi
 }
 
+### Desktop Environment
 install_de() {
   case "$DE" in
-    none) return 0 ;;
-    gnome)
-      arch-chroot /mnt pacman -Sy --noconfirm gnome gdm
-      arch-chroot /mnt systemctl enable gdm
-      ;;
-    kde)
-      arch-chroot /mnt pacman -Sy --noconfirm plasma sddm
-      arch-chroot /mnt systemctl enable sddm
-      ;;
-    xfce)
-      arch-chroot /mnt pacman -Sy --noconfirm xfce4 lightdm lightdm-gtk-greeter
-      arch-chroot /mnt systemctl enable lightdm
-      ;;
+    gnome) arch-chroot /mnt pacman -Sy --noconfirm gnome gdm; arch-chroot /mnt systemctl enable gdm ;;
+    kde)   arch-chroot /mnt pacman -Sy --noconfirm plasma sddm; arch-chroot /mnt systemctl enable sddm ;;
+    xfce)  arch-chroot /mnt pacman -Sy --noconfirm xfce4 lightdm lightdm-gtk-greeter; arch-chroot /mnt systemctl enable lightdm ;;
   esac
 }
 
-### Orchestration
+### Main
 main() {
-  require_cmds pacstrap arch-chroot parted sgdisk lsblk blkid
+  require_cmds pacstrap arch-chroot parted sgdisk reflector
   detect_boot_mode
-  configure_mirrors
   select_disk
+  configure_mirrors
 
-  FILESYSTEM="$(menu 'Choose filesystem:' ext4 btrfs xfs)"
-  SWAP_MODE="$(menu 'Swap mode:' none partition file)"
+  FILESYSTEM="$(menu 'Choose filesystem' ext4 btrfs xfs)"
+  SWAP_MODE="$(menu 'Swap option' none partition file)"
   if [[ "$SWAP_MODE" != "none" ]]; then
     SWAP_SIZE_GIB="$(ask 'Swap size in GiB (e.g. 8)')"
   fi
   TIMEZONE="$(ask 'Timezone (e.g. Europe/Berlin)')"
   HOSTNAME="$(ask 'Hostname')"
   USERNAME="$(ask 'Username')"
-  PASSWORD="$(ask 'Password (shown in clear)')"
-  PROFILE="$(menu 'Profile:' minimal desktop server)"
-  NETWORK="$(menu 'Networking:' networkmanager systemd-networkd static)"
-  DE="$(menu 'Desktop environment:' none gnome kde xfce)"
-  BOOTLOADER="$(menu 'Bootloader:' grub $( [[ "$BOOT_MODE" == "UEFI" ]] && echo systemd-boot || true ))"
+  PASSWORD="$(ask 'Password (visible as you type)')"
+  PROFILE="$(menu 'Select profile' minimal desktop server)"
+  NETWORK="$(menu 'Networking option' networkmanager systemd-networkd static)"
+  DE="$(menu 'Desktop environment' none gnome kde xfce)"
+  if [[ "$BOOT_MODE" == "UEFI" ]]; then
+    BOOTLOADER="$(menu 'Bootloader' grub systemd-boot)"
+  else
+    BOOTLOADER="grub"
+  fi
 
-  read -rp "Additional packages (space-separated, optional): " pkgline || true
+  read -rp "Additional packages (space-separated): " pkgline || true
   [[ -n "${pkgline:-}" ]] && PACKAGES=($pkgline)
 
   partition_disk
@@ -284,7 +269,9 @@ main() {
   install_bootloader
   install_de
 
-  echo "✅ Installation complete. You can now: umount -R /mnt && swapoff -a (if any) && reboot"
+  echo ""
+  echo "✅ Installation complete."
+  echo "Run: umount -R /mnt && swapoff -a (if any) && reboot"
 }
 
 main "$@"
