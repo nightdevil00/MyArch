@@ -184,7 +184,7 @@ reflector --country Romania --country Germany --country Netherlands \
 echo "=== Customizing pacman.conf ==="
 sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 10/' /etc/pacman.conf
 sed -i 's/^#Color/Color/' /etc/pacman.conf
-grep -q "ILoveCandy" /etc/pacman.conf || echo "ILoveCandy" >> /etc/pacman.conf
+#grep -q "ILoveCandy" /etc/pacman.conf || echo "ILoveCandy" >> /etc/pacman.conf
 sed -i 's/^#VerbosePkgLists/VerbosePkgLists/' /etc/pacman.conf
 # Enable multilib
 sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
