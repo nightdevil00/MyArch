@@ -135,7 +135,7 @@ partition_disk() {
 
 install_base() {
   echo "Installing base system..."
-  local BASE=(base linux linux-firmware vim)
+  local BASE=(base linux linux-firmware vim sudo)
   case "$PROFILE" in
     minimal) BASE+=(networkmanager) ;;
     desktop) BASE+=(networkmanager xorg) ;;
