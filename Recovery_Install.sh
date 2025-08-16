@@ -68,9 +68,9 @@ sgdisk --zap-all $DISK
 #  - 5GB recovery partition (type 8300)
 #  - rest for home partition (type 8302)
 echo "Creating partitions..."
-sgdisk -n 1:0:+2048M -t 1:ef00 $DISK
-sgdisk -n 2:0:+100G  -t 2:8300 $DISK
-sgdisk -n 3:0:+5G    -t 3:8300 $DISK
+sgdisk -n 1:0:+1024M -t 1:ef00 $DISK
+sgdisk -n 2:0:+20G  -t 2:8300 $DISK
+sgdisk -n 3:0:+4G    -t 3:8300 $DISK
 sgdisk -n 4:0:0      -t 4:8302 $DISK
 
 # 3. Format partitions
@@ -188,6 +188,10 @@ grep -q "ILoveCandy" /etc/pacman.conf || echo "ILoveCandy" >> /etc/pacman.conf
 sed -i 's/^#VerbosePkgLists/VerbosePkgLists/' /etc/pacman.conf
 # Enable multilib
 sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
+
+# Update package databases and upgrade system
+echo "=== Updating system after enabling multilib ==="
+pacman -Syu --noconfirm
 
 # Set root password
 echo root:$PASSWORD | chpasswd
