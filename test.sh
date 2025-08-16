@@ -31,6 +31,13 @@ require_cmds() {
     fi
 }
 
+# Ensure filesystem tools are available
+case "$FILESYSTEM" in
+    ext4) require_cmds e2fsprogs ;;
+    btrfs) require_cmds btrfs-progs ;;
+    xfs) require_cmds xfsprogs ;;
+esac
+
 dialog_menu() {
     local prompt="$1"
     shift
