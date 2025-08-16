@@ -102,6 +102,14 @@ echo "Creating and mounting home partition..."
 mkdir -p /mnt/home
 mount $HOME_PART /mnt/home
 
+require_cmds reflector python
+
+
+echo "=== Optimizing mirrors for installation (Bucharest + nearby) ==="
+require_cmds reflector
+reflector --country Romania --country Germany --country Netherlands \
+  --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+
 # 5. Download and extract Arch ISO to recovery
 echo "=== Downloading and extracting Arch ISO to recovery partition ==="
 TMP_ISO="/tmp/archlinux.iso"
@@ -140,7 +148,7 @@ fi
 
 # 8. Install base packages
 echo "Installing base system and packages..."
-pacstrap /mnt base base-devel linux linux-firmware sudo vim grub efibootmgr networkmanager git flatpak wget p7zip firefox $DE_PKGS $DM $EXTRA_PKGS
+pacstrap /mnt base base-devel linux linux-firmware sudo vim grub efibootmgr networkmanager git flatpak wget p7zip firefox man-db man-pages bash-completion $DE_PKGS $DM $EXTRA_PKGS
 
 # 9. Generate fstab
 echo "Generating fstab..."
@@ -167,6 +175,17 @@ hwclock --systohc
 echo "$LOCALE UTF-8" > /etc/locale.gen
 locale-gen
 echo "LANG=$LOCALE" > /etc/locale.conf
+
+# Optimize pacman configuration
+echo "=== Optimizing mirrors for installed system ==="
+reflector --country Romania --country Germany --country Netherlands \
+  --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+
+echo "=== Customizing pacman.conf ==="
+sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 10/' /etc/pacman.conf
+sed -i 's/^#Color/Color/' /etc/pacman.conf
+grep -q "ILoveCandy" /etc/pacman.conf || echo "ILoveCandy" >> /etc/pacman.conf
+sed -i 's/^#VerbosePkgLists/VerbosePkgLists/' /etc/pacman.conf
 
 # Set root password
 echo root:$PASSWORD | chpasswd
