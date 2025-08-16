@@ -79,7 +79,7 @@ configure_mirrors() {
         *Worldwide*) reflector --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
         *US*) reflector --country "United States" --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
         *Europe*)
-            country=$(dialog_menu "Select European country" "Germany" "Germany" "France" "France" "Netherlands" "Netherlands" "Switzerland" "Switzerland" "Italy" "Italy")
+            country=$(dialog_menu "Select European country" "Bucharest" "Germany" "Poland" "France" "Italy")
             reflector --country "$country" --latest 20 --sort rate --save /etc/pacman.d/mirrorlist ;;
         *Asia*)
             country=$(dialog_menu "Select Asian country" "Japan" "Japan" "China" "China" "Singapore" "Singapore" "India" "India")
@@ -214,7 +214,7 @@ main() {
     select_disk
     configure_mirrors
 
-    FILESYSTEM=$(dialog_menu "Choose filesystem" "ext4 – default" "btrfs – snapshots" "xfs – scalable")
+    FILESYSTEM=$(dialog_menu "Choose filesystem" "ext4 " "btrfs" "xfs ")
     SWAP_MODE=$(dialog_menu "Swap mode" "none – no swap" "partition – swap partition" "file – swap file")
     if [[ "$SWAP_MODE" != "none" ]]; then SWAP_SIZE_GIB=$(ask_dialog "Swap size in GiB") ; fi
 
