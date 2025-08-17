@@ -196,22 +196,14 @@ systemctl enable bluetooth.service || true
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 
-UUID_RECOVERY=\$(blkid -s UUID -o value ${RECOVERY_PART})
+# ====================== Download and run recovery_iso.sh ======================
+echo "Downloading recovery_iso.sh from GitHub..."
+curl -L "https://github.com/nightdevil00/ventoy.sh" -o /mnt/root/ventoy.sh
+chmod +x /mnt/root/ventoy.sh
 
-echo "=== Adding GRUB recovery entry ==="
-cat <<GRUBENTRY >> /etc/grub.d/40_custom
+echo "Running recovery ISO setup inside chroot..."
+arch-chroot /mnt /root/ventoy.sh
 
-menuentry "Recovery (Arch Linux ISO)" {
-    set isofile="/archlinux.iso"
-    search --no-floppy --fs-uuid --set=root $UUID_RECOVERY
-    loopback loop ($root)$isofile
-    linux (loop)/arch/boot/x86_64/vmlinuz-linux img_dev=/dev/disk/by-uuid/$UUID_RECOVERY img_loop=$isofile earlymodules=loop
-    initrd (loop)/arch/boot/x86_64/initramfs-linux.img
-}
-
-GRUBENTRY
-
-grub-mkconfig -o /boot/grub/grub.cfg
 
 echo "=== Creating ISO update script ==="
 cat <<UPDATESCRIPT > /usr/local/bin/update-recovery-iso
