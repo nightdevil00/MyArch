@@ -202,12 +202,13 @@ echo "=== Adding GRUB recovery entry ==="
 cat <<GRUBENTRY >> /etc/grub.d/40_custom
 
 menuentry "Recovery (Arch Linux ISO)" {
-    search --no-floppy --fs-uuid --set=root \$UUID_RECOVERY
     set isofile="/archlinux.iso"
-    loopback loop (\$root)\$isofile
-    linux (loop)/arch/boot/x86_64/vmlinuz-linux img_dev=/dev/disk/by-uuid/\$UUID_RECOVERY img_loop=\$isofile earlymodules=loop
+    search --no-floppy --fs-uuid --set=root $UUID_RECOVERY
+    loopback loop ($root)$isofile
+    linux (loop)/arch/boot/x86_64/vmlinuz-linux img_dev=/dev/disk/by-uuid/$UUID_RECOVERY img_loop=$isofile earlymodules=loop
     initrd (loop)/arch/boot/x86_64/initramfs-linux.img
 }
+
 GRUBENTRY
 
 grub-mkconfig -o /boot/grub/grub.cfg
