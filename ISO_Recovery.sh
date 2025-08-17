@@ -198,7 +198,7 @@ grub-mkconfig -o /boot/grub/grub.cfg
 
 # ====================== Download and run recovery_iso.sh ======================
 echo "Downloading recovery_iso.sh from GitHub..."
-curl -L "https://github.com/nightdevil00/ventoy.sh" -o /mnt/root/ventoy.sh
+curl -L "https://github.com/nightdevil00/MyArch/ventoy.sh" -o /mnt/root/ventoy.sh
 chmod +x /mnt/root/ventoy.sh
 
 echo "Running recovery ISO setup inside chroot..."
